@@ -2,12 +2,12 @@ import sys, subprocess
 
 from operator import itemgetter
 from datetime import datetime
-from _datetime import date
+from _datetime import timedelta
 
 
 # input data ------------------------------------------------------------------
-p1_log = 'p1_170816.txt'
-rs485_log = 'RS485_170816.txt'
+p1_log = 'T41.P1.log'
+rs485_log = 'T41.2.2.7.RS.log'
 input_list = [p1_log, rs485_log]
 
 # output data -----------------------------------------------------------------
@@ -18,10 +18,20 @@ p1_missing_value_output = 'p1.missing.val.xx.txt'
 debug_output = 'debug.xx.txt'
 
 # settings --------------------------------------------------------------------
-serial_numbers = ['20237169']
-p1_int_limit = 0.5
+sys_readout_recognition = ''            # fill in before use!!
+mtr_readout_recognition = ''            # fill in before use!!
+p1_int_limit = 0.2
 p1_int_time = 10
 date_format = '%Y-%m-%d %H:%M:%S.%f'    # don't dare to change this!! ;-)
+
+
+# validate settings -----------------------------------------------------------
+if not sys_readout_recognition:
+    print('no recognition string for system readouts defined!! abort..')
+    exit()
+if not mtr_readout_recognition:
+    print('no recognition string for meter readouts defined!! abort..')
+    exit()
 
 
 # file logger  ----------------------------------------------------------------
@@ -90,13 +100,13 @@ for filename in input_list:
     for line in f.readlines():
 
         # meter readout starts (read service list)
-        if '/2!\\r\\n' in line:
+        if mtr_readout_recognition in line:
             # bkp open dataset and create a new one
             data = create_new_dataset(line, data, cat)
             cat = 'mtr_readout'
             data['cat'] = cat
         # system readout starts (meter is addressed by serial)
-        if any(sn + '!' in line for sn in serial_numbers):
+        if sys_readout_recognition in line:
             # bkp open dataset and create a new one
             data = create_new_dataset(line, data, cat)
             cat = 'sys_readout'
@@ -240,6 +250,16 @@ for i, m in enumerate(p1_messages[1:]):
 print('done')
 
 
+# analyze lenght of meter readouts
+print('check lenght of meter readouts..', end='')
+sys.stdout.flush()
+for i, m in enumerate(meter_readouts[1:]):
+    last_message = meter_readouts[i-1]
+    if len(m['lines']) != len(last_message['lines']):
+        m['lenght_changed'] = True
+    len(m['lines'])
+print('done')
+
 # search missing p1 values
 print('search for missing p1 values..', end='')
 sys.stdout.flush()
@@ -310,6 +330,10 @@ print('%i p1 messages and %i system readouts analysed..' %(len(p1_messages),
                                                            len(sys_readouts)))
 print('%i time interval(s) out of tolerance (+/-%i%%):' 
       %(len(p1_int_errors), int(p1_int_limit * 100)))
+list_of_bad_intervals = [m['t_int'] for m in p1_int_errors]
+if list_of_bad_intervals:
+    print('min: %f, max: %f' %(min(list_of_bad_intervals), max(list_of_bad_intervals)))
+
 for i, m in enumerate(p1_int_errors):
     print('\nbad interval (%fs):' %(m['t_int']))
     print_msg_relations(m)
@@ -317,17 +341,17 @@ sys.stdout = sys.__stdout__
 print('done')
 subprocess.Popen('notepad.exe %s' %output1)
 
-'''
+
 # write p1 timeStamp output ---------------------------------------------------
 output2 = p1_timeStamp_output.replace('xx', datetime.now().strftime('%Y%m%d%H%M')[2:])
-print('\nprint p1 interval data to %s..' %output1)
+print('\nprint p1 stamp output to %s..' %output1)
 # redirect stdout
 sys.stdout = Logger(output2, verbose=False)
 print('time;timeStamp;timeStamp_converted;diff;')
 for m in p1_messages:
     t0 = datetime.strptime(m['start'][:19], '%Y-%m-%d %H:%M:%S')
     t1 = datetime.strptime(conv_time(m['compose_time']), '%Y-%m-%d %H:%M:%S')
-    diff = t1 - t0
+    diff = t1 -t0
     #f_diff = float(str(diff.seconds)+'.'+str(diff.microseconds))
     
     print('%s;%s;%s;%s;' %(m['start'][:19], m['compose_time'],
@@ -336,13 +360,16 @@ for m in p1_messages:
 sys.stdout = sys.__stdout__
 print('done')
 subprocess.Popen('notepad.exe %s' %output2)
-'''
+
 
 # write irregular messages lenght ouput ---------------------------------------
 output3 = p1_irregular_lenght_output.replace('xx', datetime.now().strftime('%Y%m%d%H%M')[2:])
-print('\nprint missing p1 values information to %s..' %output3)
+print('\nprint irregular messages lenght to %s..' %output3)
 # redirect stdout
 sys.stdout = Logger(output3, verbose=False)
+
+print('\np1 messages')
+print('-----------')
 cnt = 0
 for m in p1_messages:
     try:
@@ -353,14 +380,30 @@ for m in p1_messages:
         pass
 if cnt == 0:
     print('all logged p1 messages have the same lenght (%i lines)' %len(m['lines']))
+
+print('\nmeter readouts')
+print('---------------')
+cnt = 0
+for m in meter_readouts:
+    try:
+        if m['lenght_changed']:
+            print('%s lenght changed to %i lines' %(m['start'], len(m['lines'])))
+            cnt += 1
+    except KeyError:
+        pass
+if cnt == 0:
+    print('all logged p1 messages have the same lenght (%i lines)' %len(m['lines']))
+
+
+
 sys.stdout = sys.__stdout__
 print('done')
 subprocess.Popen('notepad.exe %s' %output3)
 
-'''
+
 # write missing values ouput ---------------------------------------
 output4 = p1_missing_value_output.replace('xx', datetime.now().strftime('%Y%m%d%H%M')[2:])
-print('\nprint p1 interval data to %s..' %output4)
+print('\nprint missing p1 values information to %s..' %output4)
 # redirect stdout
 sys.stdout = Logger(output4, verbose=False)
 cnt = 0
@@ -378,4 +421,3 @@ sys.stdout = sys.__stdout__
 print('done')
 subprocess.Popen('notepad.exe %s' %output4)
 
-'''
